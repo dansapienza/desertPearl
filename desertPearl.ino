@@ -7,8 +7,6 @@ that sleeps the datalogger and wakes from DS3231 RTC alarms*/
 #include <LowPower.h>   // https://github.com/rocketscream/Low-Power and https://github.com/rocketscream/Low-Power 
 #include <SdFat.h>      // needs 512 byte ram buffer! see https://github.com/greiman/SdFat
 
-// #define ECHO_TO_SERIAL       // define that enables debugging output to the serial monitor
-
 SdFat sd; /*Create the objects to talk to the SD card*/
 SdFile file;
 RTC_DS3231 RTC; // creates an RTC object in the code
@@ -20,8 +18,6 @@ RTC_DS3231 RTC; // creates an RTC object in the code
 #define BatteryPin 6
 
 #define DS3231_I2C_ADDRESS 0x68
-
-
 
 // variables for reading the RTC time & handling the INT(0) interrupt it generates
 #define SampleIntervalMinutes 1  // Whole numbers 1-30 only, must be a divisor of 60
@@ -70,10 +66,6 @@ void setup() {
   pinMode(13, OUTPUT);digitalWrite(13, LOW); //pull DOWN the 13scl pin on the SD card (IDLES LOW IN MODE0)
   delay(1);
 
-  #ifdef ECHO_TO_SERIAL
-    Serial.begin(9600);    // Open serial communications and wait for port to open:
-  #endif
-  
   Wire.begin();          // start the i2c interface for the RTC
   TWBR = 2;   //for 400 kHz bus @ 8MHz CPU speed ONLY // AT24c256 ok @ 400kHz http://www.atmel.com/Images/doc0670.pdf  
   RTC.begin();           // start the RTC
@@ -89,21 +81,6 @@ void setup() {
   LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
   LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
   LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
-
-  #ifdef ECHO_TO_SERIAL
-    Serial.print(F("Initializing SD card-"));
-  #endif
-  
-  // print lines in the setup loop only happen once
-  // see if the card is present and can be initialized
-  if (!sd.begin(CHIP_SELECT,SPI_FULL_SPEED)) {
-    #ifdef ECHO_TO_SERIAL
-      Serial.println(F("Card failed, or not present"));
-    #endif
-    // don’t do anything more:
-    return;
-  }
-  delay(50); //sd.begin hits the power supply pretty hard
   
   // Find the next availiable file name
   //===================================
@@ -125,23 +102,12 @@ void setup() {
   file.close(); delay(25);
   LowPower.powerDown(SLEEP_60MS, ADC_OFF, BOD_OFF);   // SD cards can draw power for up to 1sec after file close...
 
-  #ifdef ECHO_TO_SERIAL
-    Serial.print(F("Data Filename:"));
-    Serial.println(FileName); 
-    Serial.println(); 
-    Serial.flush();
-  #endif
-
   DIDR0 = 0x0F;  //  disables the digital inputs on analog 0..3 (analog 4&5 being used by I2C!)
 
   //set unused digital pins to input pullup to save power
   for(byte i = 3;i<10;i++) {
     pinMode(i,INPUT_PULLUP); //only if you do not have the onewire bus connected
   }
-  #ifndef ECHO_TO_SERIAL
-   pinMode(0,INPUT_PULLUP); //but not if we are on usb- then these pins are RX & TX 
-   pinMode(1,INPUT_PULLUP);
-  #endif
   
 }   //   SETUP ENDED
 //=====================================================================================================
@@ -161,11 +127,6 @@ void loop() {
     if (RTC.checkIfAlarm(1)) {       //Is the RTC alarm still on?
       RTC.turnOffAlarm(1);              //then turn it off.
     }
-    #ifdef ECHO_TO_SERIAL
-       //print (optional) debugging message to the serial window if you wish
-       Serial.print("RTC Alarm on INT-0 triggered at ");
-       Serial.println(CycleTimeStamp);
-    #endif
     clockInterrupt = false;                //reset the interrupt flag to false
   }
   
@@ -181,12 +142,6 @@ void loop() {
     rtc_TEMP_degC = (rtc_TEMP_degC * 1.8) + 32.0; // To Convert Celcius to Fahrenheit
   }
   else rtc_TEMP_degC = 0; //if rtc_TEMP_degC is equal to 0, then the RTC has an error.
-  
-  #ifdef ECHO_TO_SERIAL
-    Serial.print(F(". TEMPERATURE from RTC is: "));
-    Serial.print(rtc_TEMP_degC);
-    Serial.println(F(" Fahrenheit"));
-  #endif
 
   // You could read in other variables here …like the analog pins, I2C sensors, etc
   AnalogReading = analogRead(analogPin); 
@@ -209,17 +164,6 @@ void loop() {
     //the SD card is the biggest load on the system, and so it is a good test of the battery under load
 
   readBattery();
-  
-  // print to the serial port too:
-  #ifdef ECHO_TO_SERIAL
-      Serial.print(CycleTimeStamp);
-      Serial.print(",");    
-      Serial.print(rtc_TEMP_degC);
-      Serial.print(",");    
-      Serial.print(VccBGap);
-      Serial.print(",");
-      Serial.println(AnalogReading);
-  #endif
 
   //============Set the next alarm time =============
   Alarmhour = now.hour();
@@ -237,16 +181,6 @@ void loop() {
   // then set the alarm
   RTC.setAlarm1Simple(Alarmhour, Alarmminute);
   RTC.turnOnAlarm(1);
-  if (RTC.checkAlarmEnabled(1)) {
-    #ifdef ECHO_TO_SERIAL
-      Serial.print(F("RTC Alarm Enabled!"));
-      Serial.print(F(" Going to sleep for : "));
-      Serial.print(SampleIntervalMinutes);
-      Serial.println(F(" minutes"));
-      Serial.println();
-      Serial.flush();//adds a carriage return & waits for buffer to empty
-    #endif
-    }
 
   //——– sleep and wait for next RTC alarm ————–
   attachInterrupt(RTC_INTERRUPT_PIN, rtcISR, LOW);    // Enable interrupt on pin2
@@ -268,9 +202,6 @@ void readBattery() {
     if (file.isOpen()) {
       file.close();
     }
-    #ifdef ECHO_TO_SERIAL
-      Serial.print("DEAD BATTERY!!!!")
-    #endif
     LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_ON); //shut down the logger because of low voltage reading
   }
 }
@@ -281,14 +212,14 @@ void rtcISR() { // This is the Interrupt subroutine that only executes when the 
 }
 
 void clearClockTrigger() {
-  Wire.beginTransmission(0x68);   //Tell devices on the bus we are talking to the DS3231
-  Wire.write(0x0F);               //Tell the device which address we want to read or write
-  Wire.endTransmission();         //Before you can write to and clear the alarm flag you have to read the flag first!
-  Wire.requestFrom(0x68,1);       //Read one byte
-  bytebuffer1=Wire.read();        //In this example we are not interest in actually using the bye
-  Wire.beginTransmission(0x68);   //Tell devices on the bus we are talking to the DS3231 
-  Wire.write(0x0F);               //status register
-  Wire.write(0b00000000);         //Write the byte.  The last 0 bit resets Alarm 1 //is it ok to just set these all to zeros?
+  Wire.beginTransmission(0x68);   //  Tell devices on the bus we are talking to the DS3231
+  Wire.write(0x0F);               //  status register
+  Wire.endTransmission();         //  Read the flag
+  Wire.requestFrom(0x68,1);       //  Read one byte
+  bytebuffer1=Wire.read();        //  Skip it.
+  Wire.beginTransmission(0x68);   //  Tell devices on the bus we are talking to the DS3231 
+  Wire.write(0x0F);               //  status register
+  Wire.write(0b00000000);         //  Write 0s
   Wire.endTransmission();
   clockInterrupt=false;           //Finally clear the flag we use to indicate the trigger occurred
 }

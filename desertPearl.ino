@@ -12,10 +12,10 @@ SdFile file;
 RTC_DS3231 RTC;
 
 //Define Pins
-#define CHIP_SELECT 10    //CS moved to pin 10 on the arduino
+#define CHIP_SELECT 10
 #define RTC_INTERRUPT_PIN 2
-#define ANALOG_PIN 0
-#define BATTERY_PIN 6
+#define BATTERY_PIN A0
+#define WATER_PIN 3
 
 #define DS3231_I2C_ADDRESS 0x68
 #define SAMPLE_INTERVAL_MIN 1  // Integer 1-30, divisor of 60 - 1,2,3,4,5,6,10,15,20,30
@@ -24,12 +24,14 @@ RTC_DS3231 RTC;
 char CycleTimeStamp[ ] = "0000/00/00,00:00"; //16 ascii characters (without seconds)
 float batteryVoltage;
 volatile boolean clockInterrupt = false;  // interrupt flag
+bool dailyToggle = false;
 
 char FileName[12] = "data000.csv"; 
+char FileName2[12] = "daly000.csv"; 
 const char codebuild[] PROGMEM = __FILE__;  // loads the compiled source code directory & filename into a variable
-const char header[] PROGMEM = "Timestamp, RTC temp(C),RAILvoltage,AnalogReading,Add more headers here"; //gets written to second line datalog.txt in setup
+const char header[] PROGMEM = "Timestamp, RTC temp(C),RAILvoltage,WaterOrNow"; //gets written to second line datalog.txt in setup
 
-void setup() {  
+void setup() {
   pinMode(RTC_INTERRUPT_PIN,INPUT_PULLUP);  //RTC alarms low, so need pullup on the D2 line 
   pinMode(CHIP_SELECT, OUTPUT); digitalWrite(CHIP_SELECT, HIGH); //ALWAYS pullup the ChipSelect pin with the SD library
   pinMode(11, OUTPUT);digitalWrite(11, HIGH); //pullup the MOSI pin on the SD card module
@@ -38,6 +40,7 @@ void setup() {
   delay(1);
 
   Wire.begin();           // start the i2c interface for the RTC
+  TWBR = 2;//speeds up I2C bus to 400 kHz bus - ONLY Use this on 8MHz Pro Mini's
   RTC.begin();            // start the RTC
   clearClockTrigger();    //stops RTC from holding the interrupt low if system reset just occured
   RTC.turnOffAlarm(1);    // particular to this RTC library, so might need to rewrite
@@ -45,19 +48,8 @@ void setup() {
   LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);   // 16 second delay for time to compile & upload
   LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);   // Also prevents powerbounce problems.
   
-  if (!file.open(FileName, O_CREAT | O_EXCL | O_WRITE)) { // note that restarts often generate empty log files!
-    // O_CREAT = create the file if it does not exist,  O_EXCL = fail if the file exists, O_WRITE - open for write
-    for (int i = 1; i < 512; i++) {
-      delay(5);
-      snprintf(FileName, sizeof(FileName), "data%03d.csv", i);  //concatenates the next number into the filename
-      if (file.open(FileName, O_CREAT | O_EXCL | O_WRITE)) { break; } //if you can open a file with the new name, break out of the loop
-    }
-  }
-  
-  delay(25);
-  file.println((__FlashStringHelper*)codebuild);    // writes the entire path + filename to the start of the data file
-  file.println();file.println((__FlashStringHelper*)header); //write the header information in the new file
-  file.close();
+  createFile(FileName);
+  createFile(FileName2);
   
   delay(25);
   LowPower.powerDown(SLEEP_60MS, ADC_OFF, BOD_OFF);   // SD cards can draw power for up to 1sec after file close...
@@ -70,6 +62,9 @@ void setup() {
 void loop() {
   getTime();
   readBattery();
+  if(dailyToggle == true) {
+    oncePerDay();
+  }
   oncePerInterval();
   setNextAlarm();   // also executes the oncePerDay function
   
@@ -82,15 +77,18 @@ void loop() {
 }
 
 void oncePerDay() {
-  writeToCard(readRTCtemp(),batteryVoltage,analogRead(ANALOG_PIN));
+  writeToCard(FileName2,readRTCtemp(),batteryVoltage,digitalRead(WATER_PIN));
+  dailyToggle = false;
 }
 
 void oncePerInterval() {
-  writeToCard(readRTCtemp(),batteryVoltage,analogRead(ANALOG_PIN));
+  if(digitalRead(WATER_PIN) == HIGH) {
+    writeToCard(FileName,readRTCtemp(),batteryVoltage,HIGH);
+  }
 }
 
-void writeToCard(float rtcTemp, float battVolt, int analogNum) {
-  file.open(FileName, O_WRITE | O_APPEND); // open the file for write at end like the Native SD library
+void writeToCard(char fileToWrite[12], float rtcTemp, float battVolt, byte waterOrNot) {
+  file.open(fileToWrite, O_WRITE | O_APPEND); // open the file for write at end like the Native SD library
   delay(20);//LowPower.powerDown(SLEEP_30MS, ADC_OFF, BOD_OFF);
   file.print(CycleTimeStamp);
   file.print(",");    
@@ -98,7 +96,7 @@ void writeToCard(float rtcTemp, float battVolt, int analogNum) {
   file.print(",");    
   file.print(battVolt);
   file.print(",");
-  file.print(analogNum);
+  file.print(waterOrNot);
   file.println(",");
   file.close();
 }
@@ -132,11 +130,10 @@ void setNextAlarm() {
     Alarmhour = Alarmhour + 1;
     if (Alarmhour > 23) {
       Alarmhour = 0;
-      oncePerDay();
+      dailyToggle = true; // ACtivates the once per day write on the next write.
     }
   }
   
-  // then set the alarm
   RTC.setAlarm1Simple(Alarmhour, Alarmminute);
   RTC.turnOnAlarm(1);
 }
@@ -190,4 +187,25 @@ void clearClockTrigger() {
   Wire.write(0b00000000);         //  Write 0s
   Wire.endTransmission();
   clockInterrupt=false;           //Finally clear the flag we use to indicate the trigger occurred
+}
+
+void createFile(char fileToWrite[12]) {
+  if (!file.open(fileToWrite, O_CREAT | O_EXCL | O_WRITE)) { // note that restarts often generate empty log files!
+    // O_CREAT = create the file if it does not exist,  O_EXCL = fail if the file exists, O_WRITE - open for write
+    for (int i = 1; i < 512; i++) {
+      delay(5);
+      if(fileToWrite == FileName) {
+        snprintf(fileToWrite, sizeof(FileName), "data%03d.csv", i);  //concatenates the next number into the filename
+      }
+      else if(fileToWrite == FileName2) {
+        snprintf(fileToWrite, sizeof(FileName), "daly%03d.csv", i);  //concatenates the next number into the filename
+      }
+      if (file.open(fileToWrite, O_CREAT | O_EXCL | O_WRITE)) { break; } //if you can open a file with the new name, break out of the loop
+    }
+  }
+  delay(25);
+  file.println((__FlashStringHelper*)codebuild);    // writes the entire path + filename to the start of the data file
+  file.println();file.println((__FlashStringHelper*)header); //write the header information in the new file
+  file.close();
+  delay(25);
 }

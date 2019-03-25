@@ -3,9 +3,9 @@ that sleeps the datalogger and wakes from DS3231 RTC alarms*/
 
 #include <Wire.h>
 #include <SPI.h>
-#include <RTClib.h>     // library from https://github.com/MrAlvin/RTClib  Note: there are many other DS3231 libs availiable
-#include <LowPower.h>   // https://github.com/rocketscream/Low-Power and https://github.com/rocketscream/Low-Power 
-#include <SdFat.h>      // needs 512 byte ram buffer! see https://github.com/greiman/SdFat
+#include <RTClib.h>     // https://github.com/MrAlvin/RTClib
+#include <LowPower.h>   // https://github.com/rocketscream/Low-Power
+#include <SdFat.h>      // https://github.com/greiman/SdFat
 
 SdFat sd;
 SdFile file;
@@ -15,6 +15,7 @@ RTC_DS3231 RTC;
 #define CHIP_SELECT 10
 #define RTC_INTERRUPT_PIN 2
 #define BATTERY_PIN A0
+#define WATER_POWER_PIN 4
 #define WATER_PIN 3
 
 #define DS3231_I2C_ADDRESS 0x68
@@ -29,7 +30,7 @@ bool dailyToggle = false;
 char FileName[12] = "data000.csv"; 
 char FileName2[12] = "daly000.csv"; 
 const char codebuild[] PROGMEM = __FILE__;  // loads the compiled source code directory & filename into a variable
-const char header[] PROGMEM = "Timestamp, RTC temp(C),RAILvoltage,WaterOrNow"; //gets written to second line datalog.txt in setup
+const char header[] PROGMEM = "Timestamp, RTC temp(C),voltage,WaterOrNo"; //gets written to second line datalog.txt in setup
 
 void setup() {
   pinMode(RTC_INTERRUPT_PIN,INPUT_PULLUP);  //RTC alarms low, so need pullup on the D2 line 
@@ -76,13 +77,22 @@ void loop() {
   detachInterrupt(RTC_INTERRUPT_PIN);   // Immediately disable the interrupt on waking
 }
 
+boolean isThereWater() {
+  digitalWrite(WATER_POWER_PIN,HIGH);
+  delay(10);
+  bool temp = digitalRead(WATER_PIN);
+  digitalWrite(WATER_POWER_PIN,LOW);
+  return temp;
+}
+
 void oncePerDay() {
-  writeToCard(FileName2,readRTCtemp(),batteryVoltage,digitalRead(WATER_PIN));
+  bool temp = isThereWater();
+  writeToCard(FileName2,readRTCtemp(),batteryVoltage,temp);
   dailyToggle = false;
 }
 
 void oncePerInterval() {
-  if(digitalRead(WATER_PIN) == HIGH) {
+  if(isThereWater() == HIGH) {
     writeToCard(FileName,readRTCtemp(),batteryVoltage,HIGH);
   }
 }

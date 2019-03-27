@@ -13,7 +13,7 @@ RTC_DS3231 RTC;
 
 //Define Pins
 #define CHIP_SELECT 10
-#define RTC_INTERRUPT_PIN 2
+#define RTC_INTERRUPT_PIN 0 //Interrupt Pin 0 = PIN 2
 #define BATTERY_PIN A0
 #define WATER_POWER_PIN 4
 #define WATER_PIN 3
@@ -34,10 +34,13 @@ const char header[] PROGMEM = "Timestamp, RTC temp(C),voltage,WaterOrNo"; //gets
 
 void setup() {
   pinMode(RTC_INTERRUPT_PIN,INPUT_PULLUP);  //RTC alarms low, so need pullup on the D2 line 
-  pinMode(CHIP_SELECT, OUTPUT); digitalWrite(CHIP_SELECT, HIGH); //ALWAYS pullup the ChipSelect pin with the SD library
-  pinMode(11, OUTPUT);digitalWrite(11, HIGH); //pullup the MOSI pin on the SD card module
+  pinMode(CHIP_SELECT, OUTPUT);
+    digitalWrite(CHIP_SELECT, HIGH); //ALWAYS pullup the ChipSelect pin with the SD library
+  pinMode(11, OUTPUT);
+    digitalWrite(11, HIGH); //pullup the MOSI pin on the SD card module
   pinMode(12, INPUT_PULLUP); //pullup the MISO pin on the SD card module
-  pinMode(13, OUTPUT);digitalWrite(13, LOW); //pull DOWN the 13scl pin on the SD card (IDLES LOW IN MODE0)
+  //pinMode(13, OUTPUT);
+  //  digitalWrite(13, LOW); //pull DOWN the 13scl pin on the SD card (IDLES LOW IN MODE0)
   delay(1);
 
   Wire.begin();           // start the i2c interface for the RTC
@@ -48,6 +51,8 @@ void setup() {
   
   LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);   // 16 second delay for time to compile & upload
   LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);   // Also prevents powerbounce problems.
+
+  sd.begin(CHIP_SELECT,SPI_FULL_SPEED);   // some cards may need SPI_HALF_SPEED
   
   createFile(FileName);
   createFile(FileName2);
@@ -95,6 +100,7 @@ void oncePerInterval() {
   if(isThereWater() == HIGH) {
     writeToCard(FileName,readRTCtemp(),batteryVoltage,HIGH);
   }
+  writeToCard(FileName,readRTCtemp(),batteryVoltage,isThereWater());
 }
 
 void writeToCard(char fileToWrite[12], float rtcTemp, float battVolt, byte waterOrNot) {
@@ -109,6 +115,7 @@ void writeToCard(char fileToWrite[12], float rtcTemp, float battVolt, byte water
   file.print(waterOrNot);
   file.println(",");
   file.close();
+  delay(20);
 }
 
 void getTime() {
@@ -154,7 +161,7 @@ void readBattery() {
   // for stand-alone ProMini loggers, I monitor the main battery voltage (which is > Aref)
   // with a voltage divider: RawBattery - 10MΩ - A0 - 3.3MΩ - GND
   // with a 104 ceramic capacitor accross the 3.3MΩ resistor to enable the ADC to read the high impedance resistors
-  batteryVoltage = float((BatteryReading/ 255.75)*3.3);
+  batteryVoltage = float((BatteryReading/ 1023)*4.5);
   if (int(batteryVoltage*1000) < CUTOFF_VOLTAGE) { 
     if (file.isOpen()) {
       file.close();
@@ -200,15 +207,16 @@ void clearClockTrigger() {
 }
 
 void createFile(char fileToWrite[12]) {
+  
   if (!file.open(fileToWrite, O_CREAT | O_EXCL | O_WRITE)) { // note that restarts often generate empty log files!
     // O_CREAT = create the file if it does not exist,  O_EXCL = fail if the file exists, O_WRITE - open for write
     for (int i = 1; i < 512; i++) {
       delay(5);
-      if(fileToWrite == FileName) {
-        snprintf(fileToWrite, sizeof(FileName), "data%03d.csv", i);  //concatenates the next number into the filename
+      if(fileToWrite[3] == FileName[3]) {
+        snprintf(fileToWrite, 12, "data%03d.csv", i);  //concatenates the next number into the filename
       }
-      else if(fileToWrite == FileName2) {
-        snprintf(fileToWrite, sizeof(FileName), "daly%03d.csv", i);  //concatenates the next number into the filename
+      else if(fileToWrite[3] == FileName2[3]) {
+        snprintf(fileToWrite, 12, "daly%03d.csv", i);  //concatenates the next number into the filename
       }
       if (file.open(fileToWrite, O_CREAT | O_EXCL | O_WRITE)) { break; } //if you can open a file with the new name, break out of the loop
     }

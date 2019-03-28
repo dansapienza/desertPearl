@@ -26,6 +26,7 @@ char CycleTimeStamp[ ] = "0000/00/00,00:00"; //16 ascii characters (without seco
 float batteryVoltage;
 volatile boolean clockInterrupt = false;  // interrupt flag
 bool dailyToggle = false;
+int batteryMax = 0;
 
 char FileName[12] = "data000.csv"; 
 char FileName2[12] = "daly000.csv"; 
@@ -158,11 +159,13 @@ void setNextAlarm() {
 void readBattery() {
   int BatteryReading = 0;
   BatteryReading = analogRead(BATTERY_PIN); 
+  if(BatteryReading > batteryMax) batteryMax = BatteryReading;
   // for stand-alone ProMini loggers, I monitor the main battery voltage (which is > Aref)
   // with a voltage divider: RawBattery - 10MΩ - A0 - 3.3MΩ - GND
   // with a 104 ceramic capacitor accross the 3.3MΩ resistor to enable the ADC to read the high impedance resistors
-  batteryVoltage = float((BatteryReading/ 1023)*4.5);
-  if (int(batteryVoltage*1000) < CUTOFF_VOLTAGE) { 
+  batteryVoltage = (float(BatteryReading)/float(batteryMax))*4.75;
+  
+  if((batteryVoltage*1000) < CUTOFF_VOLTAGE) { 
     if (file.isOpen()) {
       file.close();
     }

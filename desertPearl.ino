@@ -64,6 +64,11 @@ void setup() {
   for(byte i = 3;i<10;i++) {
     pinMode(i,INPUT_PULLUP); //set unused digital pins to input pullup to save power
   }
+  getTime();
+  readBattery();
+  bool temp = isThereWater();
+  writeToCard(FileName,readRTCtemp(),batteryVoltage,temp);
+  writeToCard(FileName2,readRTCtemp(),batteryVoltage,temp);
 }
 
 void loop() {
@@ -101,7 +106,6 @@ void oncePerInterval() {
   if(isThereWater() == HIGH) {
     writeToCard(FileName,readRTCtemp(),batteryVoltage,HIGH);
   }
-  writeToCard(FileName,readRTCtemp(),batteryVoltage,isThereWater());
 }
 
 void writeToCard(char fileToWrite[12], float rtcTemp, float battVolt, byte waterOrNot) {

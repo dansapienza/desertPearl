@@ -11,6 +11,8 @@ SdFat sd;
 SdFile file;
 RTC_DS3231 RTC;
 
+#define DATALOGGER_SERIAL_NUMBER 17
+
 //Define Pins
 #define CHIP_SELECT 10
 #define RTC_INTERRUPT_PIN 0 //Interrupt Pin 0 = PIN 2
@@ -20,7 +22,7 @@ RTC_DS3231 RTC;
 
 #define DS3231_I2C_ADDRESS 0x68
 #define SAMPLE_INTERVAL_MIN 1  // Integer 1-30, divisor of 60 - 1,2,3,4,5,6,10,15,20,30
-#define CUTOFF_VOLTAGE 3400  // With Voltage regulator - 3400 mV, with no reg and 2 AA batteries - 2850mV (or more)
+#define CUTOFF_VOLTAGE 3300  // With Voltage regulator - 3400 mV, with no reg and 2 AA batteries - 2850mV (or more)
 
 char CycleTimeStamp[ ] = "0000/00/00,00:00"; //16 ascii characters (without seconds)
 float batteryVoltage;
@@ -31,7 +33,7 @@ int batteryMax = 0;
 char FileName[12] = "data000.csv"; 
 char FileName2[12] = "daly000.csv"; 
 const char codebuild[] PROGMEM = __FILE__;  // loads the compiled source code directory & filename into a variable
-const char header[] PROGMEM = "Timestamp, RTC temp(C),voltage,WaterOrNo"; //gets written to second line datalog.txt in setup
+const char header[] PROGMEM = "Timestamp, Serial #, RTC temp(C),voltage,WaterOrNo"; //gets written to second line datalog.txt in setup
 
 void setup() {
   pinMode(RTC_INTERRUPT_PIN,INPUT_PULLUP);  //RTC alarms low, so need pullup on the D2 line 
@@ -112,7 +114,9 @@ void writeToCard(char fileToWrite[12], float rtcTemp, float battVolt, byte water
   file.open(fileToWrite, O_WRITE | O_APPEND); // open the file for write at end like the Native SD library
   delay(20);//LowPower.powerDown(SLEEP_30MS, ADC_OFF, BOD_OFF);
   file.print(CycleTimeStamp);
-  file.print(",");    
+  file.print(",");
+  file.print(DATALOGGER_SERIAL_NUMBER);
+  file.print(",");      
   file.print(rtcTemp);
   file.print(",");    
   file.print(battVolt);

@@ -6,6 +6,7 @@ that sleeps the datalogger and wakes from DS3231 RTC alarms*/
 #include <RTClib.h>     // https://github.com/MrAlvin/RTClib
 #include <LowPower.h>   // https://github.com/rocketscream/Low-Power
 #include <SdFat.h>      // https://github.com/greiman/SdFat
+#include "pressure.h"
 
 SdFat sd;
 SdFile file;
@@ -21,7 +22,7 @@ RTC_DS3231 RTC;
 #define WATER_PIN 3
 
 #define DS3231_I2C_ADDRESS 0x68
-#define SAMPLE_INTERVAL_MIN 1  // Integer 1-30, divisor of 60 - 1,2,3,4,5,6,10,15,20,30
+#define SAMPLE_INTERVAL_MIN 30  // Integer 1-30, divisor of 60 - 1,2,3,4,5,6,10,15,20,30
 #define CUTOFF_VOLTAGE 3300  // With Voltage regulator - 3400 mV, with no reg and 2 AA batteries - 2850mV (or more)
 
 char CycleTimeStamp[ ] = "0000/00/00,00:00"; //16 ascii characters (without seconds)
@@ -33,7 +34,8 @@ int batteryMax = 0;
 char FileName[12] = "data000.csv"; 
 char FileName2[12] = "daly000.csv"; 
 const char codebuild[] PROGMEM = __FILE__;  // loads the compiled source code directory & filename into a variable
-const char header[] PROGMEM = "Timestamp, Serial #, RTC temp(C),voltage,WaterOrNo"; //gets written to second line datalog.txt in setup
+const char header[] PROGMEM = "Timestamp, Serial #, RTC temp(C) (surface), Voltage, Pressure 1 (at sensor), Pressure 1 (Adjusted), Pressure 2 (atmospheric)"; 
+    //gets written to second line datalog.txt in setup
 
 void setup() {
   pinMode(RTC_INTERRUPT_PIN,INPUT_PULLUP);  //RTC alarms low, so need pullup on the D2 line 
@@ -68,9 +70,11 @@ void setup() {
   }
   getTime();
   readBattery();
-  bool temp = isThereWater();
-  writeToCard(FileName,readRTCtemp(),batteryVoltage,temp);
-  writeToCard(FileName2,readRTCtemp(),batteryVoltage,temp);
+  start_pressure_sensors();
+  
+  writeToCard(FileName,readRTCtemp(),batteryVoltage,get_pressure_1(),get_pressure_1() + offSetPrs,get_pressure_2());
+  writeToCard(FileName2,readRTCtemp(),batteryVoltage,get_pressure_1(),get_pressure_1() + offSetPrs,get_pressure_2());
+  
 }
 
 void loop() {
@@ -90,27 +94,16 @@ void loop() {
   detachInterrupt(RTC_INTERRUPT_PIN);   // Immediately disable the interrupt on waking
 }
 
-boolean isThereWater() {
-  digitalWrite(WATER_POWER_PIN,HIGH);
-  delay(10);
-  bool temp = digitalRead(WATER_PIN);
-  digitalWrite(WATER_POWER_PIN,LOW);
-  return temp;
-}
-
 void oncePerDay() {
-  bool temp = isThereWater();
-  writeToCard(FileName2,readRTCtemp(),batteryVoltage,temp);
+  writeToCard(FileName2,readRTCtemp(),batteryVoltage,get_pressure_1(),get_pressure_1() + offSetPrs,get_pressure_2());
   dailyToggle = false;
 }
 
 void oncePerInterval() {
-  if(isThereWater() == HIGH) {
-    writeToCard(FileName,readRTCtemp(),batteryVoltage,HIGH);
-  }
+  writeToCard(FileName,readRTCtemp(),batteryVoltage,get_pressure_1(),get_pressure_1() + offSetPrs,get_pressure_2());
 }
 
-void writeToCard(char fileToWrite[12], float rtcTemp, float battVolt, byte waterOrNot) {
+void writeToCard(char fileToWrite[12], float rtcTemp, float battVolt, float pressure1, float pressure1a, float pressure2) {
   file.open(fileToWrite, O_WRITE | O_APPEND); // open the file for write at end like the Native SD library
   delay(20);//LowPower.powerDown(SLEEP_30MS, ADC_OFF, BOD_OFF);
   file.print(CycleTimeStamp);
@@ -121,7 +114,11 @@ void writeToCard(char fileToWrite[12], float rtcTemp, float battVolt, byte water
   file.print(",");    
   file.print(battVolt);
   file.print(",");
-  file.print(waterOrNot);
+  file.print(pressure1);
+  file.print(",");
+  file.print(pressure1a);
+  file.print(",");
+  file.print(pressure2);
   file.println(",");
   file.close();
   delay(20);
